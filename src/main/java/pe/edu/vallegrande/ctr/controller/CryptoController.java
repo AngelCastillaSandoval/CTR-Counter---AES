@@ -1,56 +1,96 @@
 package pe.edu.vallegrande.ctr.controller;
 
 import lombok.Data;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import pe.edu.vallegrande.ctr.service.CryptoService;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-
 @RestController
 @RequestMapping("/api/crypto")
+// Controlador REST que expone los endpoints relacionados al cifrado y descifrado.
+@RequiredArgsConstructor
 public class CryptoController {
 
+    // Inyecta automáticamente el servicio encargado del cifrado y descifrado.
     private final CryptoService cryptoService;
 
-    public CryptoController(CryptoService cryptoService) {
-        this.cryptoService = cryptoService;
-    }
-
+    // 🔐 Endpoint POST para cifrar texto plano
     @PostMapping("/encrypt")
-    public Mono<CryptoResponse> encrypt(@RequestBody CryptoRequest request) throws Exception {
-        byte[] key = cryptoService.generateKey();
-        byte[] iv = cryptoService.generateIV();
-        String encrypted = cryptoService.encrypt(request.getPlainText(), key, iv);
-        return Mono.just(new CryptoResponse(encrypted,
-                Base64.getEncoder().encodeToString(key),
-                Base64.getEncoder().encodeToString(iv)));
-    }
+    public Mono<ResponseEntity<?>> encrypt(@RequestBody EncryptRequest request) {
+        try {
+            // ✅ Validación: la clave y el IV deben tener exactamente 16 caracteres (128 bits)
+            if (request.getKey().length() != 16 || request.getIv().length() != 16) {
+                return Mono.just(ResponseEntity.badRequest().body("❌ Clave e IV deben tener exactamente 16 caracteres."));
+            }
 
-    @PostMapping("/decrypt")
-    public Mono<String> decrypt(@RequestBody CryptoResponse response) throws Exception {
-        byte[] key = Base64.getDecoder().decode(response.getKey());
-        byte[] iv = Base64.getDecoder().decode(response.getIv());
-        return Mono.just(cryptoService.decrypt(response.getCipherText(), key, iv));
-    }
+            // 🔄 Codificamos la clave e IV a Base64 para pasarlas como bytes al servicio
+            String base64Key = Base64.getEncoder().encodeToString(request.getKey().getBytes(StandardCharsets.UTF_8));
+            String base64IV = Base64.getEncoder().encodeToString(request.getIv().getBytes(StandardCharsets.UTF_8));
 
-    @Data
-    public static class CryptoRequest {
-        private String plainText;
-    }
+            // 🚀 Llamamos al servicio para cifrar el texto plano
+            String cipherText = cryptoService.encrypt(request.getPlainText(), base64Key, base64IV);
 
-    @Data
-    public static class CryptoResponse {
-        private String cipherText;
-        private String key;
-        private String iv;
-
-        public CryptoResponse(String cipherText, String key, String iv) {
-            this.cipherText = cipherText;
-            this.key = key;
-            this.iv = iv;
+            // ✅ Devolvemos el texto cifrado al cliente
+            return Mono.just(ResponseEntity.ok(new EncryptResponse(cipherText)));
+        } catch (Exception e) {
+            // ❌ En caso de error, devolvemos el mensaje
+            return Mono.just(ResponseEntity.badRequest().body("❌ Error en cifrado: " + e.getMessage()));
         }
+    }
 
-        public CryptoResponse() {}
+    // 🔓 Endpoint POST para descifrar un texto cifrado
+    @PostMapping("/decrypt")
+    public Mono<ResponseEntity<?>> decrypt(@RequestBody DecryptRequest request) {
+        try {
+            // ✅ Validación: la clave y el IV deben tener 16 caracteres
+            if (request.getKey().length() != 16 || request.getIv().length() != 16) {
+                return Mono.just(ResponseEntity.badRequest().body("❌ Clave e IV deben tener exactamente 16 caracteres."));
+            }
+
+            // 🔄 Codificamos clave e IV a Base64 igual que en el cifrado
+            String base64Key = Base64.getEncoder().encodeToString(request.getKey().getBytes(StandardCharsets.UTF_8));
+            String base64IV = Base64.getEncoder().encodeToString(request.getIv().getBytes(StandardCharsets.UTF_8));
+
+            // 🔓 Desciframos el texto cifrado usando el servicio
+            String plainText = cryptoService.decrypt(request.getCipherText(), base64Key, base64IV);
+
+            // ✅ Devolvemos el texto plano resultante
+            return Mono.just(ResponseEntity.ok(new DecryptResponse(plainText)));
+        } catch (Exception e) {
+            // ❌ Error en descifrado
+            return Mono.just(ResponseEntity.badRequest().body("❌ Error en descifrado: " + e.getMessage()));
+        }
+    }
+
+    // 📦 DTO para la solicitud de cifrado
+    @Data
+    public static class EncryptRequest {
+        private String plainText; // Texto que se desea cifrar
+        private String key;       // Clave simétrica (16 caracteres)
+        private String iv;        // Vector de inicialización (también de 16 caracteres)
+    }
+
+    // 📦 DTO para la respuesta del cifrado
+    @Data
+    public static class EncryptResponse {
+        private final String cipherText; // Resultado del cifrado (en Base64)
+    }
+
+    // 📦 DTO para la solicitud de descifrado
+    @Data
+    public static class DecryptRequest {
+        private String cipherText; // Texto cifrado en Base64
+        private String key;        // Clave simétrica (16 caracteres)
+        private String iv;         // Vector de inicialización (16 caracteres)
+    }
+
+    // 📦 DTO para la respuesta del descifrado
+    @Data
+    public static class DecryptResponse {
+        private final String plainText; // Resultado del descifrado
     }
 }
