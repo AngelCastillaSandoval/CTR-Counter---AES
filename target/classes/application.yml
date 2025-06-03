@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: ctr
+
+server:
+  port: 8090
+
+logging:
+  level:
+    root: INFO
+    pe.edu: DEBUG
+    org.springframework.web.reactive: DEBUG
